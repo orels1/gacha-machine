@@ -1,0 +1,76 @@
+{
+  "dependencies": {
+    "com.vrchat.avatars": {
+      "version": "3.5.0"
+    },
+    "com.vrchat.core.vpm-resolver": {
+      "version": "0.1.27"
+    },
+    "sh.orels.shaders": {
+      "version": "6.4.0-dev.3"
+    },
+    "com.llealloo.audiolink": {
+      "version": "1.2.1"
+    },
+    "vrchat.blackstartx.gesture-manager": {
+      "version": "3.8.8"
+    },
+    "com.vrcfury.vrcfury": {
+      "version": "1.704.0"
+    },
+    "one.razgriz.rats": {
+      "version": "1.1.4"
+    }
+  },
+  "locked": {
+    "com.vrchat.avatars": {
+      "version": "3.5.0",
+      "dependencies": {
+        "com.vrchat.base": "3.5.0"
+      }
+    },
+    "com.vrchat.base": {
+      "version": "3.5.0",
+      "dependencies": {}
+    },
+    "com.vrchat.core.vpm-resolver": {
+      "version": "0.1.27",
+      "dependencies": {}
+    },
+    "sh.orels.shaders": {
+      "version": "6.4.0-dev.3",
+      "dependencies": {
+        "sh.orels.shaders.generator": "^6.4.0-dev.3",
+        "sh.orels.shaders.inspector": "^6.4.0-dev.3"
+      }
+    },
+    "sh.orels.shaders.generator": {
+      "version": "6.4.0-dev.3",
+      "dependencies": {}
+    },
+    "sh.orels.shaders.inspector": {
+      "version": "6.4.0-dev.3",
+      "dependencies": {}
+    },
+    "com.llealloo.audiolink": {
+      "version": "1.2.1",
+      "dependencies": {}
+    },
+    "vrchat.blackstartx.gesture-manager": {
+      "version": "3.8.8",
+      "dependencies": {
+        "com.vrchat.avatars": "3.2.x || 3.3.x || 3.4.x || 3.5.x"
+      }
+    },
+    "com.vrcfury.vrcfury": {
+      "version": "1.704.0",
+      "dependencies": {}
+    },
+    "one.razgriz.rats": {
+      "version": "1.1.4",
+      "dependencies": {
+        "com.vrchat.base": "^3.4.0"
+      }
+    }
+  }
+}
