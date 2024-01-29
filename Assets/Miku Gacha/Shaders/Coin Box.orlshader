@@ -1,0 +1,126 @@
+%ShaderName("Coin Box")
+%CustomEditor("ORL.ShaderInspector.InspectorGUI")
+
+%Properties()
+{
+    UI_Coin_BoxHeader("# Coin_Box", Int) = 1
+    [HDR]_ScreenBG("Screen Background", Color) = (0, 0, 0, 0)
+    _ScreenTex("Screen Texture", 2D) = "white" {}
+    [HDR]_TouchColor("Touch Color", Color) = (0, 0, 0, 0)
+    [HDR]_TouchTextColor("Touch Text Color", Color) = (0, 0, 0, 0)
+    _WireMask("Wire Mask", 2D) = "black" {}
+    _Arrows("Arrows", 2D) = "black" {}
+    [IntRange]_State("State", Range(0, 3)) = 0
+}
+
+%Includes()
+{
+    "@/Modules/AudioLink",
+    "@/Shaders/ORL Standard",
+    "self"
+}
+
+%Variables()
+{
+    half4 _ScreenBG;
+    half4 _TouchColor;
+    half4 _TouchTextColor;
+    half4 _Arrows_TexelSize;
+    int _State;
+}
+
+%Textures()
+{
+    TEXTURE2D(_ScreenTex);
+    SAMPLER(sampler_ScreenTex);
+    TEXTURE2D(_WireMask);
+    SAMPLER(sampler_WireMask);
+    TEXTURE2D(_Arrows);
+    SAMPLER(sampler_Arrows);
+}
+
+%Fragment("Coin_BoxFragment")
+{
+    float EaseInOutCubic(float x)
+    {
+        //x < 0.5f ? 4.0f * x * x * x : 1 - Mathf.Pow(-2 *x + 2,3)/2;
+        float inValue = 4.0 * x * x * x;
+        float outValue = 1.0 -pow(-2.0 * x + 2.0 ,3.0) /2.0;
+        return step(inValue , 0.5) * inValue + step(0.5,outValue) * outValue;
+    }
+
+    void Coin_BoxFragment(MeshData d, inout SurfaceData o) {
+        if (d.uv1.x > 1) return;
+
+        if (d.uv1.x < 0) {
+            if (AudioLinkIsAvailable()) {
+                half band = floor(d.uv1.y * 4.0);
+                half alData = AudioLinkLerp(ALPASS_AUDIOLINK + half2((d.uv1.x + 1.0) * AUDIOLINK_WIDTH, band));
+                // alData = smoothstep(0.2, 0.9, alData);
+                half3 albedoHSV = RGB2HSV(o.Albedo);
+                albedoHSV.y *= 0.9;
+                half mask = SAMPLE_TEXTURE2D(_WireMask, sampler_WireMask, d.uv2.xy / 4.0).r;
+                alData = step(mask, alData);
+                o.Emission = HSV2RGB(albedoHSV) * alData * pow(1.4, 2.2);
+            }
+            return;
+        }
+
+        o.Albedo = 0;
+
+        o.Emission = _ScreenBG;
+
+        // Idle
+        [branch]
+        if (_State == 0) {
+            half4 screen = SAMPLE_TEXTURE2D(_ScreenTex, sampler_ScreenTex, d.uv1.xy);
+            half touchPulse = saturate(sin(_Time.y * 4) * 0.5 + 0.5 + 0.1);
+            o.Emission += screen.r * _TouchColor * touchPulse;
+            o.Emission = lerp(o.Emission, screen.b * _TouchTextColor, screen.b);
+            return;
+        }
+
+        // Spinning
+        [branch]
+        if (_State == 1) {
+            half2 uv = d.uv1.xy;
+            uv -= 0.5;
+            
+            // spin around center
+            half factor = EaseInOutCubic(frac(_Time.y)) * UNITY_PI * 2.0;
+            half2x2 spinMatrix = { cos(factor), sin(factor), -sin(factor), cos(factor) };
+            uv = mul(uv, spinMatrix);
+
+            // rescale
+            uv *= 2.0;
+            uv += 0.5;
+            uv = uv * _Arrows_TexelSize.zw;
+            uv = (floor(uv) + 0.5) * _Arrows_TexelSize.xy;
+            half4 spinning = SAMPLE_TEXTURE2D(_Arrows, sampler_Arrows, uv);
+            half pulse = sin(_Time.y * UNITY_PI * 2.0) * 0.5 + 0.5;
+            pulse += 0.5;
+            o.Emission = lerp(o.Emission, o.Emission * 6.6 * pulse, spinning.g);
+            return;
+        }
+
+        // Prize
+        [branch]
+        if (_State == 2) {
+            half2 uv = d.uv1.xy;
+            uv -= 0.5;
+        
+            // rescale
+            uv *= 1.5;
+            uv += 0.5;
+            uv = uv * _Arrows_TexelSize.zw;
+            uv = (floor(uv) + 0.5) * _Arrows_TexelSize.xy;
+
+            // float
+            uv.y += cos(_Time.y) * 0.05;
+            half4 spinning = SAMPLE_TEXTURE2D(_Arrows, sampler_Arrows, uv);
+            o.Emission = lerp(o.Emission, o.Emission * 6.6, spinning.r);
+            return;
+        }
+
+    }
+}

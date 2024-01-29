@@ -1,0 +1,158 @@
+%ShaderName("Body")
+%CustomEditor("ORL.ShaderInspector.InspectorGUI")
+
+%Properties()
+{
+    UI_BodyHeader("# Body", Int) = 1
+    _BodyTexture("Body Texture", 2D) = "black" {}
+    [HDR]_SpinGlow("Spin Glow", Color) = (1, 1, 1, 1)
+    [IntRange]_State("State", Range(0, 4)) = 0
+    [HDR]_WaitColor("Wait Color", Color) = (1, 1, 1, 1)
+    [HDR]_PrizeColor("Prize Color", Color) = (1, 1, 1, 1)
+}
+
+%Includes()
+{
+    "@/Shaders/ORL Standard",
+    "self"
+}
+
+%Variables()
+{
+    half4 _SpinGlow;
+    int _State;
+    float4 _WaitColor;
+    float4 _PrizeColor;
+}
+
+%Textures()
+{
+    TEXTURE2D(_BodyTexture);
+    SAMPLER(sampler_BodyTexture);
+}
+
+%Fragment("BodyFragment")
+{
+    float EaseInQuad(float x)
+    {
+    return x * x;
+    }
+
+    float EaseOutQuad(float x)
+    {
+        return 1.0 - (1.0-x) * (1.0 -x );
+    }
+
+    float EaseInCubic(float x)
+    {
+        return x * x * x;
+    }
+
+    float EaseOutCubic(float x)
+    { 
+        return 1.0 - pow(1.0 - x,3.0);
+    }
+
+    float EaseInOutCubic(float x)
+    {
+        //x < 0.5f ? 4.0f * x * x * x : 1 - Mathf.Pow(-2 *x + 2,3)/2;
+        float inValue = 4.0 * x * x * x;
+        float outValue = 1.0 -pow(-2.0 * x + 2.0 ,3.0) /2.0;
+        return step(inValue , 0.5) * inValue + step(0.5,outValue) * outValue;
+    }
+
+    void IdleState(MeshData d, inout SurfaceData o) {
+        half2 uv = d.uv1.xy;
+        half baseFactor = saturate(invLerp(0.3, 0.9, uv.x + 0.02));
+        baseFactor = floor((baseFactor) * 4);
+
+        half timeline = _Time.y % 20.0;
+        half glowFactor = 1;
+        uv.y -= 0.5;
+        if (timeline < 1.1) {
+            // half offset = lerp(0.05, 0, saturate(invLerp(0.2, 1.0, timeline)));
+            // half offset = lerp(0.05, 0.0, EaseOutQuad(saturate(invLerp(0.5, 1.0, timeline))));
+            half factor = baseFactor * 0.05;
+            uv.y += lerp(0, 0.5, EaseOutQuad(saturate(timeline - factor)));
+        } else if (timeline < 6.0) {
+            half localTimeFactor = saturate((timeline - 1.1) / 4.9);
+            half scaler = EaseInCubic(saturate(localTimeFactor));
+            half localTime = lerp(UNITY_PI / 2.0, UNITY_PI * 4, localTimeFactor);
+            half factor = sin(localTime * 5 + baseFactor * UNITY_PI / 2.0);
+            glowFactor = localTime > UNITY_PI ? (abs(factor) < 0.5 ? 0.5 : 1.0) : 1.0;
+            uv.y += 0.5 + factor * 0.01 * scaler;
+        } else if (timeline < 12.0) {
+            half localTimeFactor = saturate((timeline - 6.0) / 6.0);
+            half scaler = EaseInCubic(1 - saturate(localTimeFactor));
+            half localTime = lerp(UNITY_PI * 4, UNITY_PI * 8 + UNITY_PI / 2.0, localTimeFactor);
+            half factor = sin(localTime * 5 + baseFactor * UNITY_PI / 2.0);
+            glowFactor = localTime < UNITY_PI * 6 ? (abs(factor) < 0.5 ? 0.5 : 1.0) : 1.0;
+            uv.y += 0.5 + factor * 0.01 * scaler;
+        } else if (timeline < 18.1) {
+            half localTimeFactor = saturate((timeline - 17.0) / 1.1);
+            half factor = baseFactor * 0.05;
+            uv.y += 0.5 + lerp(0, 0.5, EaseInCubic(saturate(localTimeFactor - factor)));
+        } else if (timeline < 20.0) {
+            uv.y += 1.0;
+        }
+
+        half4 bodyTex = SAMPLE_TEXTURE2D(_BodyTexture, sampler_BodyTexture, uv);
+
+        o.Emission += bodyTex.r * _SpinGlow * 0.5 * glowFactor;
+    }
+
+    void SpinningState(MeshData d, inout SurfaceData o) {
+        half2 uv = d.uv1.xy;
+        
+        half baseFactor = saturate(invLerp(0.35, 0.92, uv.x + 0.02));
+        baseFactor = -floor((baseFactor) * 4);
+
+        half pulse = sin(_Time.y * 10 + baseFactor * UNITY_PI / 4.0) * 0.5 + 0.5;
+        pulse = saturate(pulse + 0.3);
+
+        half4 bodyTex = SAMPLE_TEXTURE2D(_BodyTexture, sampler_BodyTexture, uv);
+        o.Emission += bodyTex.g * _WaitColor * 0.5 * pulse;
+    }
+
+    void PrizeState(MeshData d, inout SurfaceData o) {
+        half2 uv = d.uv1.xy;
+        
+        half baseFactor = saturate(invLerp(0.25, 0.95, uv.x + 0.02));
+        baseFactor = -floor((baseFactor) * 5);
+
+        half pulse = sin(_Time.y * 10 + baseFactor * UNITY_PI / 4.0) * 0.5 + 0.5;
+        pulse = saturate(pulse + 0.3);
+        uv.y += (pulse * 2.0 - 1.0) * 0.005;
+
+        half4 bodyTex = SAMPLE_TEXTURE2D(_BodyTexture, sampler_BodyTexture, uv);
+        o.Emission += bodyTex.b * _PrizeColor * 0.5 * pulse;
+    }
+
+
+    void BodyFragment(MeshData d, inout SurfaceData o) {
+        if (d.uv1.x > 1) return;
+        
+        half2 uv = d.uv1.xy;
+        
+        // Idle
+        [branch]
+        if (_State == 0) {
+            IdleState(d, o);
+            return;
+        }
+
+        // Spinning
+        [branch]
+        if (_State == 1) {
+            SpinningState(d, o);
+            return;
+        }
+
+        // Prize
+        [branch]
+        if (_State == 2) {
+            PrizeState(d, o);
+            return;
+        }
+    }
+}

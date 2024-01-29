@@ -1,0 +1,85 @@
+%ShaderName("Capsule")
+%CustomEditor("ORL.ShaderInspector.InspectorGUI")
+
+%Properties()
+{
+    UI_SphereHeader("# Capsule", Int) = 1
+    _Darken("Darken", Range(0,1)) = 1
+    [IntRange]_PrizeTier("Prize Tier", Range(0,4)) = 0
+    _BronzeColor("Bronze Color", Color) = (0.926, 0.721, 0.504, 1)
+    _SilverColor("Silver Color", Color) = (0.962, 0.949, 0.922, 1)
+    _GoldColor("Gold Color", Color) = (0.944, 0.776, 0.373, 1)
+}
+
+
+%Includes()
+{
+    "@/Modules/AudioLink",
+    "@/Shaders/ORL Standard",
+    "@/Modules/Dissolve",
+    "self"
+}
+
+%Variables()
+{
+    half _Darken;
+    int _PrizeTier;
+    half4 _BronzeColor;
+    half4 _SilverColor;
+    half4 _GoldColor;
+}
+
+%Fragment("CapsuleFragment")
+{
+    void CapsuleFragment(MeshData d, inout SurfaceData o) {
+        if (d.uv0.y > 3) {
+            half3 grayscale = pow(saturate(dot(d.vertexColor.rgb, half3(0.299, 0.587, 0.114))), 2.2);
+            switch (_PrizeTier) {
+                case 0:
+                    o.Albedo = grayscale;
+                    break;
+                case 1:
+                    o.Albedo = d.vertexColor.rgb;
+                    break;
+                case 2:
+                    o.Albedo = _BronzeColor.rgb * grayscale;
+                    o.Metallic = 1;
+                    o.Smoothness = 0.95;
+                    break;
+                case 3:
+                    o.Albedo = _SilverColor.rgb * grayscale;
+                    o.Metallic = 1;
+                    o.Smoothness = 0.95;
+                    break;
+                case 4:
+                    o.Albedo = _GoldColor.rgb * grayscale;
+                    o.Metallic = 1;
+                    o.Smoothness = 0.95;
+                    break;
+            }
+            if (_PrizeTier > 1) {
+                o.Emission = saturate(2 - (_Time.y * 2) % 8) * o.Albedo;
+            } else {
+                o.Emission = o.Albedo * 0.1;
+            }
+            return;
+        }
+        half band = floor(d.uv2.y * 4.0);
+
+        if (AudioLinkIsAvailable()) {
+            if (band > 0.99 && band < 1.99) {
+                half alData = 1 - AudioLinkData(ALPASS_FILTEREDAUDIOLINK + uint2(1, band));
+                o.Albedo *= alData;
+            } else {
+                o.Emission = AudioLinkData(ALPASS_FILTEREDAUDIOLINK + uint2(5, band));
+            }
+        }
+    }
+}
+
+%Color("CapsuleColor")
+{
+    void CapsuleColor(inout half4 FinalColor) {
+        FinalColor.rgb *= 1 - _Darken;
+    }
+}

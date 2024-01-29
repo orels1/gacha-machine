@@ -1,0 +1,329 @@
+%ShaderName("Screen")
+%CustomEditor("ORL.ShaderInspector.InspectorGUI")
+
+%Properties()
+{
+    UI_ScreenHeader("# Screen", Int) = 1
+    _ScreenFrom("From", Color) = (0, 0, 0, 0)
+    _ScreenTo("To", Color) = (0, 0, 0, 0)
+    _SpinMask("Mask", 2D) = "black" {}
+    [HDR]_SpinColor("Color", Color) = (0, 0, 0, 0)
+    [HDR]_SpinOutline("Outline", Color) = (0, 0, 0, 0)
+    _BallSheet("Ball Sheet", 2D) = "black" {}
+    [IntRange]_State("State", Range(0, 4)) = 0
+    [HDR]_SpinningColor("Spinning Color", Color) = (0, 0, 0, 0)
+    _SpinBallSheet("Ball Sheet", 2D) = "black" {}
+    _Celery("Celery", 2D) = "black" {}
+}
+
+%Includes()
+{
+    "@/Modules/AudioLink",
+    "@/Shaders/ORL Standard",
+    "self"
+}
+
+%Variables()
+{
+    float4 _ScreenFrom;
+    float4 _ScreenTo;
+    float4 _SpinColor;
+    float4 _SpinOutline;
+    float4 _BallSheet_TexelSize;
+    int _State;
+    float4 _SpinningColor;
+    float4 _SpinBallSheet_TexelSize;
+    float4 _Celery_TexelSize;
+}
+
+%Textures()
+{
+    TEXTURE2D(_SpinMask);
+    SAMPLER(sampler_SpinMask);
+    TEXTURE2D(_BallSheet);
+    SAMPLER(sampler_BallSheet);
+    TEXTURE2D(_SpinBallSheet);
+    TEXTURE2D(_Celery);
+}
+
+%Fragment("ScreenFragment")
+{
+
+    float sdCircle( float2 p, float r )
+    {
+        return length(p) - r;
+    }
+
+    float sdBox( in float2 p, in float2 b )
+    {
+        float2 d = abs(p)-b;
+        return length(max(d,0.0)) + min(max(d.x,d.y),0.0);
+    }
+
+    void IdleState(MeshData d, inout SurfaceData o, half geoMask, half vignette, half3 final) {
+        half2 uv = d.uv1.xy;
+        half2 centeredUv = d.uv1.xy - 0.5;
+
+        half highlightDist = sdCircle(centeredUv,frac(_Time.y));
+        highlightDist = abs(highlightDist) - 0.1;
+        highlightDist = 1 - smoothstep(0, 0.01, highlightDist);
+
+        half2 uvGrid = frac(float2(
+            uv.x * 64,
+            uv.y * 64
+        ));
+        half dist = sdCircle(uvGrid - 0.5, 0.2 * saturate(vignette - 0.1));
+        dist = 1 - smoothstep(0, 0.01 + (1 - vignette) * 0.3, dist);
+        dist *= geoMask;
+        dist *= 0.5;
+        dist += dist * highlightDist;
+
+        half2 spinUv = d.uv1.xy;
+        spinUv -= 0.5;
+        spinUv *= 1.4;
+        spinUv += 0.5;
+        spinUv.y += 0.15;
+
+        spinUv += half2(0, sin(_Time.y) * 0.02);
+        half pulse = sin(_Time.y * 6) * 0.5 + 0.6;
+
+        spinUv.y += 0.15;
+        half4 spinTex = SAMPLE_TEXTURE2D(_SpinMask, sampler_SpinMask, spinUv);
+        spinTex *= (spinUv.y < 1) * (1 - (spinUv.x < 0 || spinUv.x > 1));
+        half spinMain = spinTex.r;
+        half spinOutline = spinTex.g * pulse;
+        
+        o.Albedo = 0;
+
+        half2 ballUv = d.uv2.xy;
+        half2 parallax = ParallaxOffset(-1, 0.04, d.tangentSpaceViewDir);
+        ballUv += parallax;
+        ballUv = GetSpritesheetUV(ballUv, float2(4, 5), 20, 0, 0);
+        half bounceRange = 0.5;
+        half ballBounceOffset = floor(d.uv1.x * 2.5 - 0.75) / 3.0;
+        ballBounceOffset *= 3;
+        half ballBounce = (sin((_Time.y * 5 + ballBounceOffset) % (10 * UNITY_PI)) * 0.5 + 0.5) * (0.05 * bounceRange);
+        ballUv.y -= ballBounce;
+        
+        half2 maskUv = d.uv2.xy + parallax;
+        maskUv -= 0.5;
+        maskUv.y -= ballBounce * (4.5);
+        half mask = sdBox(maskUv , half2(0.5, 0.5));
+        mask = 1 - smoothstep(0, 0.01, mask);
+
+        ballUv = ballUv * _BallSheet_TexelSize.zw;
+        ballUv = (floor(ballUv) + 0.5) * _BallSheet_TexelSize.xy;
+
+        half4 ballTex = SAMPLE_TEXTURE2D(_BallSheet, sampler_BallSheet, ballUv);
+
+        half2 denseGrid = frac(float2(
+            uv.x * 256,
+            uv.y * 256
+        ));
+
+        half distToCam = length(d.worldSpacePosition - _WorldSpaceCameraPos);
+        half sizeFactor = saturate(invLerp(0.5, 1, distToCam));
+        half opacityFactor = lerp(0.5, 1, saturate(invLerp(1, 0.5, distToCam)));
+        half denseGridDist = sdCircle(denseGrid - 0.5, 0.8 * saturate(vignette - 0.1) + sizeFactor);
+        denseGridDist = 1 - smoothstep(0, 0.01 + (1 - vignette) * 0.3, denseGridDist);
+        denseGridDist *= geoMask;
+        denseGridDist *= 0.5 * opacityFactor;
+
+
+        half balls = denseGridDist * ballTex.a * mask;
+        balls = saturate(balls - spinTex.a);
+
+        o.Emission = lerp(final, final + dist, dist);
+
+        if (AudioLinkIsAvailable()) {
+            half2 wvwfrmUV = d.uv1.xy + ParallaxOffset(-1, 0.1, d.tangentSpaceViewDir);
+            float noteno = (remap((floor(wvwfrmUV.x * 32.0) / 32.0), -0.3, 1, 0, 1)) * 128;
+            float4 spectrum_value = AudioLinkLerpMultiline( ALPASS_DFT + float2( noteno, 0. ) )  + 0.5;
+            float waveLevel = floor(spectrum_value.z * 32) / 32.0 * 0.5;
+            o.Emission = lerp(o.Emission, o.Emission * 4.4 * 0.5, wvwfrmUV.y < (waveLevel * 0.5 - 0.1));
+        }
+
+        o.Emission += balls;
+        
+        o.Emission += (spinMain * _SpinColor * 0.8 + spinOutline * _SpinOutline);
+    }
+
+    void SpinningState(MeshData d, inout SurfaceData o, half geoMask, half vignette, half3 final) {
+        half2 uv = d.uv1.xy;
+        half2 centeredUv = d.uv1.xy - 0.5;
+
+        o.Albedo = 0;
+
+        half highlightDist = sin(d.uv1.y * 5 + _Time.y * 8) * 0.5 + 0.5;
+        highlightDist = saturate((highlightDist - 0.8) * 8) * 2;
+        // o.Emission = highlightDist;
+        // return;
+
+        // rescale UVs
+        half2 spinningUv = d.uv1.xy;
+        // spinningUv -= 0.5;
+        // spinningUv /= 1.3;
+        // spinningUv += 0.5;
+        spinningUv.y -= 0.3;
+
+        // Bounce
+        half baseFactor = SAMPLE_TEXTURE2D(_SpinMask, sampler_SpinMask, spinningUv).b;
+        spinningUv.y += sin(_Time.y * 10 + UNITY_PI * 2.0 * baseFactor) * 0.03;
+
+        half4 spinTex = SAMPLE_TEXTURE2D(_SpinMask, sampler_SpinMask, spinningUv);
+        spinTex *= spinningUv.y > 0 && spinningUv.y < 0.5;
+        
+        half2 uvGrid = frac(float2(
+            uv.x * 64,
+            uv.y * 64
+        ));
+        half dist = sdCircle(uvGrid - 0.5, 0.2 * saturate(vignette - 0.1));
+        dist = 1 - smoothstep(0, 0.01 + (1 - vignette) * 0.3, dist);
+        dist *= geoMask;
+        dist *= 0.5;
+        dist += dist * highlightDist;
+
+        o.Emission = lerp(final, final + dist, dist);
+
+        half2 ballUv = d.uv1.xy;
+        ballUv += ParallaxOffset(-1, 0.05, d.tangentSpaceViewDir);
+        half parallaxedBall = ballUv.x;
+        ballUv.x *= 4;
+        half frameOffset = -floor(ballUv.x);
+        // ballUv.y -= frameOffset * 0.5;
+        ballUv = GetSpritesheetUV(ballUv, float2(16, 1), 20, 10, frameOffset * 4);
+        
+         half2 denseGrid = frac(float2(
+            uv.x * 256,
+            uv.y * 256
+        ));
+
+        half distToCam = length(d.worldSpacePosition - _WorldSpaceCameraPos);
+        half sizeFactor = saturate(invLerp(0.5, 1, distToCam));
+        half opacityFactor = lerp(0.5, 1, saturate(invLerp(1, 0.5, distToCam)));
+        half denseGridDist = sdCircle(denseGrid - 0.5, 0.4 * saturate(vignette - 0.1) + sizeFactor);
+        denseGridDist = 1 - smoothstep(0, 0.01 + (1 - vignette) * 0.3, denseGridDist);
+        denseGridDist *= geoMask;
+        denseGridDist *= 0.5 * opacityFactor;
+
+        ballUv = ballUv * _SpinBallSheet_TexelSize.zw;
+        ballUv = (floor(ballUv) + 0.5) * _SpinBallSheet_TexelSize.xy;
+        half4 ballTex = SAMPLE_TEXTURE2D(_SpinBallSheet, sampler_BallSheet, ballUv);
+
+        o.Emission += (spinTex.r * _SpinningColor * 0.8);
+        o.Emission += ballTex.a * denseGridDist * (1 - (parallaxedBall < 0 || parallaxedBall > 1));
+    }
+
+    void PrizeState(MeshData d, inout SurfaceData o, half geoMask, half vignette, half3 final) {
+        half2 centeredUv = d.uv1.xy - 0.5;
+
+        o.Albedo = 0;
+
+        half highlightDist = sin(d.uv1.x * 5 - _Time.y * 8) * 0.5 + 0.5;
+        highlightDist = saturate((highlightDist - 0.8) * 8) * 2;
+
+        // half angle = frac(_Time.y * 0.5) * UNITY_PI * 2.0;
+        // half2x2 rotMat = { cos(angle), -sin(angle), sin(angle), cos(angle) };
+        
+        // celery
+        half2 uv = d.uv1.xy;
+        uv.x -= _Time.y;
+        uv -= 0.5;
+        uv *= 3;
+        uv += 0.5;
+        uv.x = frac(uv.x);
+        // uv -= 0.5;
+        // uv = mul(rotMat, uv);
+        // uv += 0.5;
+        // half mask = 1 - smoothstep(0.45, 0.46, length(uv - 0.5));
+        // o.Emission = mask;
+        // return;
+        
+        
+        
+        uv = uv * _Celery_TexelSize.zw;
+        uv = (floor(uv) + 0.5) * _Celery_TexelSize.xy;
+        half4 celery = SAMPLE_TEXTURE2D(_Celery, sampler_BallSheet, uv);
+        // celery *= mask;
+
+        // celery bg
+        uv = d.uv1.xy;
+        uv += ParallaxOffset(-1, 0.1, d.tangentSpaceViewDir);
+        uv -= 0.5;
+        uv *= 3;
+        uv += 0.5;
+        uv.x -= _Time.y * 4;
+        uv = uv * _Celery_TexelSize.zw;
+        uv = (floor(uv) + 0.5) * _Celery_TexelSize.xy;
+        half4 celery2 = SAMPLE_TEXTURE2D(_Celery, sampler_BallSheet, uv);
+
+        // celery bg2
+        uv = d.uv1.xy;
+        uv += ParallaxOffset(-1, 0.2, d.tangentSpaceViewDir);
+        uv -= 0.5;
+        uv *= 3;
+        uv += 0.5;
+        uv.x -= _Time.y * 6;
+        uv = uv * _Celery_TexelSize.zw;
+        uv = (floor(uv) + 0.5) * _Celery_TexelSize.xy;
+        half4 celery3 = SAMPLE_TEXTURE2D(_Celery, sampler_BallSheet, uv);
+        
+        uv = d.uv1.xy;
+        half2 uvGrid = frac(float2(
+            uv.x * 64,
+            uv.y * 64
+        ));
+        half dist = sdCircle(uvGrid - 0.5, 0.2 * saturate(vignette - 0.1));
+        dist = 1 - smoothstep(0, 0.01 + (1 - vignette) * 0.3, dist);
+        dist *= geoMask;
+        dist *= 0.5;
+        dist += dist * highlightDist;
+
+        o.Emission = lerp(final, final + dist, dist);
+        o.Emission += celery3.r * 0.125;
+        o.Emission += celery2.r * 0.25;
+        o.Emission += celery.r;
+    }
+
+    void ScreenFragment(MeshData d, inout SurfaceData o) {
+        if (d.uv1.x > 1) return;
+
+        half3 fromHSV = RGB2HSV(_ScreenFrom.rgb);
+        half3 toHSV = RGB2HSV(_ScreenTo.rgb);
+
+        half3 final = HSV2RGB(half3(
+            lerp(fromHSV.x, toHSV.x, length(d.uv1.xy)),
+            lerp(fromHSV.y, toHSV.y, length(d.uv1.xy)),
+            lerp(fromHSV.z, toHSV.z, length(d.uv1.xy))
+        ));
+
+        half vignette = saturate(pow(1 - length(d.uv1.xy - 0.5), 2.2));
+        half geoMask = 1 - abs(dot(d.worldNormal, half3(0, 1, 0)));
+        geoMask *= 1 - abs(dot(d.worldNormal, half3(1, 0, 0)));
+        final *= vignette;
+
+        // Idle
+        [branch]
+        if (_State == 0) {
+            IdleState(d, o, geoMask, vignette, final);
+            return;
+        }
+
+        // Spinning
+        [branch]
+        if (_State == 1) {
+            SpinningState(d, o, geoMask, vignette, final);
+            return;
+        }
+
+        // Prize
+        [branch]
+        if (_State == 2) {
+            PrizeState(d, o, geoMask, vignette, final);
+            return;
+        }
+
+
+        
+    }
+}
