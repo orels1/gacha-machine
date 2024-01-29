@@ -14,6 +14,7 @@ The design of the machine was based on the [incredible concept art](https://www.
 - Stamps and alphas for the painting were created in Figma and Blender (rendered out as PNGs)
 - Rigged to add all the moving parts in Blender
 - Everything was imported into Unity 2022.3.6 and custom shaders were created utilizing orels Unity Shaders package
+- Audio was made in Reaper and exported as OGGs
 
 ## Project Structure
 
